@@ -1,0 +1,1277 @@
+<script language="javascript">
+//-----------------------------------------------------------//
+// Global variables
+//-----------------------------------------------------------//
+
+// Universal engine variables
+var cellHeight = 50;          // The height of all background grid cells
+var cellWidth  = 50;          // The width of all background grid cells
+
+// Screen set-up
+var gameSpaceHeight = cellHeight*11;                    // The BG height
+var gameSpaceWidth = cellWidth*11;                      // The BG width
+var gameSpaceOffsetX = 30;                              // The offset X of the screen
+var gameSpaceOffsetY = 30;                              // The offset Y of the screen
+var everythingOffsetX = 0-(Math.round(cellHeight/2));   // The offset X of the entire stage
+var everythingOffsetY = 0-(Math.round(cellWidth/2));    // The offset Y of the entire stage
+var tilePrefix = "tiles/tile_"                          // The prefix in the URL of tile images
+var frameRate  = 60;                                    // The rate at which the screen refreshes
+var cameraX = everythingOffsetX;			                  // The camera's current X position
+var cameraY = everythingOffsetY;			                  // The camera's current Y position
+var scrollBufferX = Math.round(gameSpaceWidth/3);       // How far from X the player needs to be to scroll
+var scrollBufferY = Math.round(gameSpaceHeight/3);	    // How far from Y the player needs to be to scroll
+
+// Array of image files to be preloaded
+var plImg = new Array();                                // An array of images to preload
+    plImg = ["guy_jump_left.gif","guy_jump_right.gif","guy_stand_left.gif","guy_stand_right.gif"];
+for(i = 0; i < plImg.length; i++)
+ plImg[i] = "<img src='"+plImg[i]+"'>";
+
+// These are variables that relate to gameplay
+var level = 0;                  // Current Level
+var spawnRow = 0;               // The row on which the player spawns
+var spawnCol = 0;               // The column on which the player spawn
+var player;                     // The player's div
+var enemyObjs = new Array();    // An array of enemy objects for hit checks
+var powerObjs = new Array();    // An array of powerup objects for hit checks
+var otherObjs = new Array();    // Other objects the player can interact with
+var sfxObjs = new Array();      // An array of objects that interact with no one
+var IDCounter = 0;              // Makes sure new items don't have the same name
+var globalTicker = 0;		        // 0-9, goes up each second (resets at) 0
+
+// These variables relate to the stage setup and management
+var currentStage;               // The stage that is currently loaded
+var allStages = new Array();    // An array of all stages in the entire game
+ 
+//-----------------------------------------------------------//
+// All real time functions
+//-----------------------------------------------------------//
+ 
+function realTime()
+{
+ // Update ticker
+ globalTicker++
+ if(globalTicker > 9) globalTicker = 0;
+
+ // Show real time feedback for debugging
+ feedback("x: "+player.x+"; y: "+player.y+"; ticker:"+globalTicker);
+
+ // Scrolling background
+ smartScroll();
+ 
+ // Run functions for the player
+ player.runAIonce();
+ 
+ // Run functions for enemies
+ for (var i=0;i<enemyObjs.length;i++)
+ {
+  enemyObjs[i].runAIonce();
+//  alert(enemyObjs[i].y);
+ }
+
+ // Show animation effects
+ player.animationEffects();
+
+ // Run the real time function again
+ setTimeout("realTime()", frameRate);
+}
+
+//-----------------------------------------------------------//
+// Scrolling functions
+//-----------------------------------------------------------//
+
+function smartScroll()
+{ 
+ //Render scrolling up
+ if(isPlayerHigh() && isCameraNotTooHigh()) {
+  scroll("y", player.jumpRate);
+ }
+ //Render scrolling down
+ else if(isPlayerLow() && isCameraNotTooLow()) {
+  scroll("y", -player.fallRate);
+ }
+ //Render scrolling left
+ if(isPlayerLeft() && isCameraNotTooLeft()) {
+  scroll("x", player.leftRate);
+ }
+ //Render scrolling right
+ else if(isPlayerRight() && isCameraNotTooRight()) {
+ scroll("x", -player.rightRate);
+ }
+}
+
+function resetCamera()
+{
+ cameraX = 0;
+ cameraY = 0;
+ //Render scrolling up
+ if(isPlayerHigh() && isCameraNotTooHigh()) {
+  while(isPlayerHigh() && isCameraNotTooHigh())
+   { cameraY++;}
+ }
+ //Render scrolling down
+ else if(isPlayerLow() && isCameraNotTooLow()) {
+  while(isPlayerLow() && isCameraNotTooLow())
+   { cameraY--;}
+ }
+ //Render scrolling left
+ if(isPlayerLeft() && isCameraNotTooLeft()) {
+  while(isPlayerLeft() && isCameraNotTooLeft())
+   { cameraX++;}
+ }
+ //Render scrolling right
+ else if(isPlayerRight() && isCameraNotTooRight()) {
+  while(isPlayerRight() && isCameraNotTooRight()) 
+   { cameraX--;}
+ }
+  setItemProperty(document.getElementById("everything"), "top", cameraY);
+  setItemProperty(document.getElementById("everything"), "left", cameraX);
+}
+
+function isPlayerHigh() {
+ return player.y < -1*(cameraY-scrollBufferY);
+}
+
+function isPlayerLow() {
+ return player.y > -1*(cameraY-(gameSpaceHeight-scrollBufferY));
+}
+
+function isPlayerLeft() {
+ return player.x < -1*(cameraX-scrollBufferX);
+}
+
+function isPlayerRight() {
+ return player.x > -1*(cameraX-(gameSpaceWidth-scrollBufferX));
+}
+
+function isCameraNotTooHigh() {
+ return cameraY+player.jumpRate  < 0;
+}
+
+function isCameraNotTooLow() {
+ return cameraY-gameSpaceHeight-player.fallRate  > (-1*(currentStage.length*cellHeight));
+}
+
+function isCameraNotTooLeft() {
+ return cameraX+player.leftRate < 0;
+}
+
+function isCameraNotTooRight() {
+ return cameraX-gameSpaceWidth-player.rightRate > (-1*(currentStage[0].length*cellWidth));
+}
+
+function scroll(xORy, howFar)
+{
+ if(xORy == "y")
+ {
+  cameraY += howFar;
+  setItemProperty(document.getElementById("everything"), "top", cameraY);
+ }
+ if(xORy == "x")
+ {
+  cameraX += howFar;
+  setItemProperty(document.getElementById("everything"), "left", cameraX);
+ }
+}
+
+//-----------------------------------------------------------//
+// Write HTML
+//-----------------------------------------------------------//
+
+with(document)
+{
+ writeln("<head><title>The Floor Is Lava</title></head>");
+ writeln("<body onLoad='setUpGame()' onFocus='forceFocus()' bgcolor='black' text='white'>");
+ writeln("<div id='preload' style='visibility: hidden;'>"+plImg+"</div>");
+ writeln("<div id='feedback'  style='position:absolute; left:0; top:0;'>Use the ASWD keys to move.</div>");
+ writeln("<div id='gameSpace' style='position:absolute; background-image: url(bg_exterior_island.gif); overflow: hidden; left:"+gameSpaceOffsetX+"; top:"+gameSpaceOffsetY+";'>");
+  writeln("<div id='everything'style='position:absolute; left:"+cameraX+"; top:"+cameraY+";''>");
+   writeln("<div id='stageBG'  style='position:absolute; left:0; top:0;'>&#160;</div>");
+   writeln("<div id='backRow'  style='position:absolute; left:0; top:0;'>&#160;</div>");
+   writeln("<div id='frontRow' style='position:absolute; left:0; top:0;'>&#160;</div>");
+   writeln("<div id='vfx'      style='position:absolute; left:0; top:0;'>&#160;</div>");
+   writeln("<div id='stageFG'  style='position:absolute; left:0; top:0;'>&#160;</div>");
+  writeln("</div></div>");
+ writeln("</body>");
+}
+
+//-----------------------------------------------------------//
+// Metagame Functions
+//-----------------------------------------------------------//
+ 
+function setUpGame()
+{
+ // Set up stage
+ bgDiv = document.getElementById("gameSpace");
+ setItemProperty(bgDiv, "left", gameSpaceOffsetX);
+ setItemProperty(bgDiv, "top", gameSpaceOffsetY);
+ setItemProperty(bgDiv, "height", gameSpaceHeight);
+ setItemProperty(bgDiv, "width", gameSpaceWidth);
+ 
+ player = new Player(3,3);
+ 
+ // Set up player
+ setStage(allStages[level]);
+ 
+ // Trigger real time
+ realTime();
+}
+
+function levelUp() {
+ level++;
+ if(level < allStages.length)
+  setStage(allStages[level]);
+ else
+  ending();
+}
+
+function gameOver() {
+ player.respawn();
+ flashRed();
+ resetCamera();
+}
+
+function flashRed(){
+document.bgColor='#660000';
+setTimeout("flashBlack()",100);
+}
+
+function flashBlack(){
+document.bgColor='#000000';
+}
+
+function ending() {
+alert("You win! Thanks for playing!");
+location.reload();
+}
+//-----------------------------------------------------------//
+// Helper functions
+//-----------------------------------------------------------//
+
+// Makes a new unique ID number
+function newIDNumber() {
+ IDCounter++;
+ return IDCounter;
+}
+
+// Converts cols and rows to x and y and vise versa
+function xToCol(x)   {return Math.floor(x/cellWidth);}
+function colToX(col) {return Math.floor(col*cellWidth);}
+function yToRow(y)   {return Math.floor(y/cellHeight);}
+function rowToY(row) {return Math.floor(row*cellHeight);}
+
+// Changes a div property in both IE and FireFox
+function setItemProperty(divID, propName, value)
+{
+ if(divID[propName])
+  divID[propName]=value;
+ else if(divID.style)
+  divID.style[propName]=value;
+ else if(divID.setProperty)
+  divID.setProperty(propName, value, null);
+ else
+ {
+  alert("Sorry, but your browser cannot run this script.");
+ }
+}
+
+// Gets a div property in both IE and FireFox
+function getItemProperty(divID, propName)
+{
+ if(divID[propName])
+  divID[propName];
+ else if(divID.style)
+  divID.style[propName];
+ else if(divID.getProperty)
+  divID.getProperty(propName);
+ else
+ {
+  alert("Sorry, but your browser cannot run this script.");
+ }
+}
+
+// Allows objects to extend from other objects
+function extendObj(subObj, superObj)
+{
+ for(sProperty in superObj)
+ {
+  subObj[sProperty] = superObj[sProperty];
+ }
+}
+
+// Show feedback for debugging
+function feedback(fbString)
+{
+ var fb = document.getElementById("feedback");
+ setItemProperty(fb, "innerHTML", "&nbsp;[ Use the ASWD keys to move. ] &nbsp;&nbsp;&nbsp; THE FLOOR IS LAVA &nbsp;&nbsp;&nbsp; [ Debug : "+fbString+" ]");
+}
+
+// Create a new div and return it
+function makeNewDiv(layer)
+{
+ var newDivName = layer + '' + newIDNumber();
+ var elem = document.createElement("div");
+ document.getElementById(layer).appendChild(elem);
+ elem.setAttribute("id", newDivName);
+ setItemProperty(elem, "position", "absolute");
+ setItemProperty(elem, "left", 0);
+ setItemProperty(elem, "top", 0);
+ return elem;
+}
+
+// Forces focus to an invisible text box to avoid enabled hotkeys
+function forceFocus()
+{
+ //document.getElementById("txtBox").focus();
+}
+ 
+//-----------------------------------------------------------//
+// Player input
+//-----------------------------------------------------------//
+
+var NS = (window.Event) ? 1 : 0;
+if (NS) document.captureEvents(Event.KEYPRESS)
+document.onkeypress = pressKey;
+
+var NS = (window.Event) ? 1 : 0;
+if (NS) document.captureEvents(Event.KEYUP)
+document.onkeyup = unpressKey;
+
+function pressKey(e)
+{
+ var code = (NS) ? e.which : event.keyCode;
+ var keyPressed = String.fromCharCode(code).toLowerCase();
+ if (keyPressed == "a")
+  player.left = true;
+ if (keyPressed == "d")
+  player.right = true;
+ if (keyPressed == "w")
+  player.jump = true;
+ if (keyPressed == "s")
+  player.down = true;
+}
+
+function unpressKey(e)
+{
+ var code = (NS) ? e.which : event.keyCode;
+ var keyPressed = String.fromCharCode(code).toLowerCase();
+ if (keyPressed == "a")
+  player.left = false;
+ if (keyPressed == "d")
+  player.right = false;
+ if (keyPressed == "w")
+  player.jump = false;
+ if (keyPressed == "s")
+  player.down = false;
+}
+
+//-----------------------------------------------------------//
+// Hit detection
+//-----------------------------------------------------------//
+
+// This is a solid point that is located on a spri3te's div, it is
+function SolidPoint(newX, newY)
+{
+ /*
+ Note: Ok, here's how this works. Each sprite object has a 0,0 point
+ which is the top left corner of their div. It has nothing to do with
+ their image, it's size, or it's shape (but the image also originates
+ from the top left corner). From that 0,0 point, you can use this object
+ to create other points, which will be offset from the div's 0,0 point
+ based on what their X and Y values are assigned to. These points should
+ be added to the 'solidPoints' array that's in each object. When an object
+ moves, it checks to see if any of the solid points in it's array hit
+ anything else. Which means if many objects have many solid points, the
+ game will run really slow, but if they don't have a lot, the game's hit
+ detection will be really inaccurate. Try to balance this.
+ 
+ When ordering these points in their arrays in a sprite object, the most
+ used point (like the feet) should be first, and the least used point (like
+ the head) should be last.
+ */
+ this.x = newX;
+ this.y = newY;
+}
+
+// A shorter constructor for SolidPoint
+function SP(x,y) { return new SolidPoint(x,y);}
+
+//-----------------------------------------------------------//
+// Object functions
+//-----------------------------------------------------------//
+
+//This parent object is for sprites
+function SpriteObj(row, col)
+{
+ // For animation
+ this.div;                     // The div that the sprite is loaded onto
+ this.imgID = newIDNumber();   // The ID of the image on this sprite's div
+ this.name;                    // The name of the sprite (used in the file name)
+ this.imgState;                // The name of the current image (like 'walk', 'jump' or 'stand')
+ this.face;                    // The direction the character is facing
+ this.file;                    // The filetype of the sprite
+ this.fullURL;                 // A complete URL that, if defined, overrides the above variables
+ this.isUnderWater;	       // If true the sprite will be wavy.
+ 
+ // Image size
+ this.width = cellWidth;    // The height of the image
+ this.height = cellHeight;  // The width of the image
+ 
+ // For gameplay
+ this.row = row;       // Based off y position and sprite length
+ this.col = col;       // Based off x position and sprite length
+ this.x = colToX(col); // The x position
+ this.y = rowToY(row); // The y position
+ this.tileType = "";   // Type of tile being occupied
+ 
+ // For hitbox points:
+ this.wallSPs = new Array(); // An array of SolidPoints (with 0 height and width) for walls
+ this.elseSPs = new Array(); // An array of SolidPoints for object interaction
+ 
+ // Updates the div's location on the screen to the object's X and Y variables 
+ this.updateLocation=function()
+ {
+  setItemProperty(this.div, "left", this.x);
+  setItemProperty(this.div, "top", this.y);
+ }
+ 
+ // Updates the actual image inside the div
+ this.updateImg = function() {
+  setItemProperty(this.img, "src", this.getImgURL());
+ }
+
+ // Creates new image
+ this.createImage = function() {
+  var img = this.div.appendChild(document.createElement("img"));
+  img.setAttribute("src", this.getImgURL());
+  img.setAttribute("height", this.height);
+  img.setAttribute("width", this.width);
+  this.img = img;
+ }
+ 
+ // Gets what the URL for this sprite should be, given its current state
+ this.getImgURL=function()
+ {
+  var imgSource = this.name+"_"+this.imgState+"_"+this.face+"."+this.file;
+  if(this.fullURL)
+   imgSource = this.fullURL;
+  return imgSource;
+ }
+
+ // Changes the direction the object is facing, and it's image if it needs to
+ this.setFace=function(newFace)
+ {
+  this.face = newFace;
+  this.updateImg();
+ }
+ 
+ // Changes the direction the object is facing, and it's image if it needs to
+ this.setImgState=function(newImgState)
+ {
+  this.imgState = newImgState;
+  this.updateImg();
+ }
+
+ // Checks to see if the object is touching another object 
+ this.collide = function(other, grace) {
+ if(!grace) grace = 0;
+ if (this.x + (this.width-grace) < other.x) return false;
+ if (this.x > other.x + (other.width-grace)) return false;
+ if (this.y + (this.height-grace) < other.y) return false;
+ if (this.y > other.y + (other.height-grace)) return false;
+ return true;
+ } 
+ // Tries to move the object in a direction
+ this.move=function(newX, newY)
+ {
+  if(currentStage[yToRow(newY)] && currentStage[yToRow(newY)][xToCol(newX)])
+  {
+   var isSpaceOpen = true;  // Does the tile(s) that I'm moving on let me move on them?
+   
+   // Feedback for debug
+   //feedback("newX "+newX+" newY "+newY+" oldX "+this.x+" oldY "+this.y+" row "+this.row+" col "+this.col);
+   
+   // Check to see if the tile will let me move there
+   for(var i = 0; i <  this.wallSPs.length && isSpaceOpen; i++)
+    if(currentStage[yToRow(newY+this.wallSPs[i].y)] && currentStage[yToRow(newY+this.wallSPs[i].y)][xToCol(newX+this.wallSPs[i].x)])
+     isSpaceOpen = currentStage[yToRow(newY+this.wallSPs[i].y)][xToCol(newX+this.wallSPs[i].x)].isSpaceEmpty(this);
+    else
+     return false;
+   
+   // Let me move, if I can.
+   if(isSpaceOpen)
+   {
+    this.x = newX;
+    this.y = newY;
+    this.row = yToRow(this.y);
+    this.col = xToCol(this.x);
+    this.updateLocation();
+    return true;
+   }
+   else
+    return false;
+   }
+   else
+    return false;
+  }
+ 
+  // Move the object in a direction, ignoring walls
+ this.freeMove=function(newX, newY)
+ {
+  this.x = newX;
+  this.y = newY;
+  this.row = yToRow(this.y);
+  this.col = xToCol(this.x);
+  this.updateLocation();
+ }
+ 
+ // AI to be ran in realtime
+ this.runAIonce = function()
+ {
+  setItemProperty(this.div, "innerHTML", "NO AI DEFINED!")
+ }
+
+ this.clearSprite = function(){
+  this.div.parentNode.removeChild( this.div );
+ }
+ 
+ // Apply enviromental animation effects
+ this.animationEffects=function()
+ {
+  if(this.isUnderWater)
+  {
+   if(globalTicker == 0)
+   {
+    this.height = 55;
+    this.width = 50;
+    this.updateSize();
+   }
+   if(globalTicker == 5)
+   {
+    this.height = 50;
+    this.width = 55;
+    this.updateSize();
+   }
+  }
+ } 
+}
+
+function FireBall(spawnRow, spawnCol)
+{
+ // Extentions
+ extendObj(this, new SpriteObj(spawnRow, spawnCol));
+ this.div      = makeNewDiv("backRow");
+ this.name     = "fireball";
+ this.fullURL = "http://i.imgur.com/gcCJD.gif";
+ this.downURL = "http://i.imgur.com/YrQKE.gif";
+ this.upURL = "http://i.imgur.com/gcCJD.gif";
+ this.jumpCycle = 0;
+ this.jumpOffset = newIDNumber() * 5;
+ this.createImage();
+ this.spawn=function() {
+   this.freeMove(colToX(spawnCol)-5, rowToY(spawnRow));
+  for(var i=0;i<5+this.jumpOffset;i++){
+   this.runAIonce();   
+  }
+ }
+
+ this.runAIonce = function()
+ {
+  if(this.jumpCycle >= 0 && this.jumpCycle < 15) {
+   this.freeMove(this.x, this.y - 10);
+  } else if(this.jumpCycle == 15) {
+   this.freeMove(this.x + 15, this.y);   
+   this.fullURL = this.downURL;
+   this.updateImg();
+  } else if(this.jumpCycle > 15 && this.jumpCycle <= 29) {
+   this.freeMove(this.x, this.y + 10);   
+  } else if(this.jumpCycle == 30){
+   this.freeMove(this.x - 15, this.y);   
+   this.jumpCycle = 0;
+   this.fullURL = this.upURL;
+   this.updateImg();
+  }
+  this.jumpCycle++;
+  if(this.collide(player, 25)) { 
+   gameOver();
+  }
+ }
+
+ this.spawn();
+}
+
+// Object unique to the player
+function Player(row, col)
+{
+ // Extentions
+ extendObj(this, new SpriteObj(row, col));
+ this.div      = makeNewDiv("frontRow");
+ this.name     = "player";
+ this.imgState = "stand";
+ this.face     = "right";
+ this.file     = "gif";
+ this.state    = "float";
+ this.wallSPs  = [SP((Math.round(cellWidth/2))-1, cellHeight-1),SP(Math.round(cellWidth/2)-1, Math.round(cellHeight/2)-1)]; 
+ this.createImage();
+ this.updateLocation();
+ this.updateImg();
+  
+ // Unique variables
+ this.left  = false;            		// If the player is pressing the left button
+ this.right = false;            		// If the player is pressing the right button
+ this.jump  = false;            		// If the player is pressing the jump button
+ this.down  = false;       		    	// If the player is pressing the down button
+ this.bomb  = false;          			// If the player is pressing the bomb button
+ this.jumpCount = -1;          			// Player can jump only when this is set to -1
+ this.fallRate  = Math.ceil(cellHeight/3);      // The rate the player falls
+ this.jumpRate  = Math.ceil(cellHeight/3);      // The rate the player jumps
+ this.leftRate  = Math.ceil(cellWidth/5);       // The rate the player walks left
+ this.rightRate = Math.ceil(cellWidth/5);       // The rate the player walks right
+ this.maxJump   = 6;           			// The max amount of times the player moves by the JumpRate
+ this.minJump   = 3;            		// The min amount of times the player moves by the JumpRate
+ this.animation = 1;                            // Ticks up 1 - 4
+
+ this.respawn=function() {
+  this.freeMove(colToX(spawnCol), rowToY(spawnRow));
+ }
+
+ // Run the player's "AI" function to control player's sprite
+ this.runAIonce=function()
+ {
+  // Check for special tiles
+  if(this.tileType != "normal" && this.tileType != "PlayerSpawnPoint"){
+   if(this.tileType == "LevelGoal")
+    levelUp();
+   if(this.tileType == "death")
+    gameOver();
+  }
+
+  // Left or right
+  if (this.left)
+  {
+   this.animation++;
+   if(this.animation==5)
+    this.animation=1;
+   this.move(this.x-this.leftRate,this.y);
+   this.setFace("left");
+   this.setImgState("walk"+this.animation);
+  }
+  else if (this.right)
+  {
+   this.animation++;
+   if(this.animation==5)
+    this.animation=1;
+   this.move(this.x+this.rightRate,this.y)
+   this.setFace("right");
+   this.setImgState("walk"+this.animation);
+  }
+  else
+  {
+   this.setImgState("stand");   
+  }
+  
+  // Press jump
+  if (this.jump && (this.jumpCount == -1 || this.tileType == "water"))
+  {
+    this.jumpCount = this.maxJump;
+  }
+ 
+  // Control jumping
+  if ((this.jumpCount > this.minJump) || (this.jumpCount > 0 && this.jump))
+  {
+   //Try to jump.
+   this.canJump = false;
+   if(this.tileType == "water") {
+     this.canJump = this.move(this.x,this.y-(this.jumpRate*0.5));}
+   else {
+     this.canJump = this.move(this.x,this.y-this.jumpRate);}
+
+
+   if(this.canJump) {}
+   else
+   {
+    this.setImgState("jump");
+    this.jumpCount = 0;
+   }
+  }
+  else
+  {
+    if(this.tileType == "water") {
+      this.canFall = this.move(this.x,this.y+(this.fallRate*0.5));}
+    else {
+      this.canFall = this.move(this.x,this.y+this.fallRate);}
+    if (this.canFall)
+    {
+     this.setImgState("fall");
+     this.jumpCount = 0;
+    }
+    else
+    {
+      //If the player can't fall make him land on the ground.
+      this.move(this.x,rowToY(yToRow(this.y+this.fallRate)));
+      this.jumpCount = -1;
+    }
+  }
+  
+  if(this.jumpCount > 0)
+  {
+   this.setImgState("jump");
+   this.jumpCount--;
+  }
+ }
+}
+
+//-----------------------------------------------------------//
+// Stage setup
+//-----------------------------------------------------------//
+
+// Each stage array needs to be passed through this function before it can be used
+function indexAllTiles(matrix)
+{
+ for (var i = 0; i < matrix.length; i++)
+ {
+  for (var j = 0; j < matrix[i].length; j++)
+  {
+   matrix[i][j].row = i;
+   matrix[i][j].col = j;
+   if(matrix[i][j].tileType == "PlayerSpawnPoint"){
+    spawnCol = j;
+    spawnRow = i; 
+   } else if(matrix[i][j].name == "FireBallSpawn"){
+    enemyObjs.push(new FireBall(i, j));
+   }  
+  }
+ }
+}
+
+function setStage(stage)
+{
+  for(i = 0; i < enemyObjs.length; i++)
+  {
+    enemyObjs[i].clearSprite();
+    delete enemyObjs[i]
+  }
+  enemyObjs = new Array;
+
+ indexAllTiles(stage);
+ currentStage = stage;
+ // Draw background table
+ renderStage(stage);
+ player.respawn();
+ resetCamera();
+}
+
+function renderStage(stage)
+{
+ var stageTableString = '';
+ stageTableString += "<table border=0 cellspacing=0 cellpadding=0>";
+ for (var i = 0; i < stage.length; i++)
+ {
+  stageTableString += "<tr>";
+  for (var j = 0; j < stage[i].length; j++)
+  {
+   stageTableString += "<td>";
+   stageTableString += "<img id='BG_"+stage[i][j].row+"_"+stage[i][j].col+"' src='"+tilePrefix+stage[i][j].img+"' height='"+cellHeight+"' width='"+cellWidth+"'>";
+   stageTableString += "</td>";
+  }
+  stageTableString += "</tr>";
+ } 
+ stageTableString += "</table>";
+ setItemProperty(document.getElementById('stageBG'), "innerHTML", stageTableString);
+
+ // Draw foreground table
+ stageTableString = "<table border=0 cellspacing=0 cellpadding=0>";
+ for (var i = 0; i < stage.length; i++)
+ {
+  stageTableString += "<tr>";
+  for (var j = 0; j < stage[i].length; j++)
+  {
+   stageTableString += "<td>";
+   stageTableString += "<img id='FG_"+stage[i][j].row+"_"+stage[i][j].col+"' src='"+tilePrefix+stage[i][j].fgImg+"' height='"+cellHeight+"' width='"+cellWidth+"' style='opacity:"+(stage[i][j].opacity/100)+";filter:alpha(opacity="+stage[i][j].opacity+")'>";
+   stageTableString += "</td>";
+  }
+  stageTableString += "</tr>";
+ } 
+ stageTableString += "</table>";
+ setItemProperty(document.getElementById('stageFG'), "innerHTML", stageTableString);
+}
+
+//-----------------------------------------------------------//
+// Tile functions
+//-----------------------------------------------------------//
+
+// This parent object is for tiles
+function TileObj()
+{
+ /*
+ Note: Height and width *must* be fixed to the default sprite height and
+ and width. You cannot change an individual tile without changing all of
+ them, since they would be in a grid. If you want to create an oddly shaped
+ object, then make a bunch of smaller tiles for each part of it, and piece
+ it together that way.
+ */
+ 
+ // For rendering
+ this.name = "blank";      // The name of this particular tile
+ this.img = "blank.gif";   // The full file name of the will be drawn on this square
+ this.fgImg = "blank.gif"; // The image that is shown on the stage foreground layer
+ this.opacity = 100;       // Opacity of foreground sprite
+ 
+ // Gameplay Stuff
+ this.canBeHere = true;    // Wether or not a sprite object can occupy a space.
+ this.tileType = "normal"; // Type of tile for modifying player functions
+
+ // These need to be inserted after instantiation by the "indexAllTiles()" function
+ this.row;       // The row in the stage array in which this tile is located
+ this.col;       // The column in the stage array in which this tile is located
+ 
+ // These variables are changed by sprite objects
+ this.occupants = new Array(); // An array of sprite objects that are located on this tile
+ this.state = "normal";        // An object's state
+ 
+ // Tell if the space is solid
+ this.isSpaceEmpty=function(whoWantsToKnow)
+ {
+  if(this.canBeHere)
+   this.onTouch(whoWantsToKnow);
+  return this.canBeHere;
+ }
+ 
+ // What to do when something tries to touch this space
+ this.onTouch=function(aSprite)
+ {
+   aSprite.tileType = this.tileType;
+ }
+}
+
+// This kind of tile is completely blank
+function BlankSpace()
+{
+ extendObj(this, new TileObj());
+ this.name = "BlankSpace";
+ this.img  = "blank.gif";
+}
+
+// This kind of wall can be destroyed with bombs
+function DemoWall()
+{
+ extendObj(this, new TileObj());
+ this.name = "DemoWall";
+ this.img  = "demowall.gif";
+ this.canBeHere = false;
+}
+
+// This globe opens a text box when you stand near it
+function InfoGlobe()
+{
+ extendObj(this, new TileObj());
+ this.name = "InfoGlobe";
+ this.fgImg = "infoglobe.png";
+}
+
+// Sand wraps the otherwise blank tile
+function SandFx()
+{
+ extendObj(this, new TileObj());
+ this.name = "SandFx";
+ this.fgImg = "sand_fg.png";
+ this.img = "sand_bg.png";
+}
+
+// Makes it look like grass is growing in front of this otherwise blank tile
+function GrassFx()
+{
+ extendObj(this, new TileObj());
+ this.name = "GrassFx";
+ this.fgImg = "grassfx.png";
+ this.img = "smallgrassfx.png";
+}
+
+// Makes it look like a bit of grass is growing behind this otherwise blank tile
+function SmallGrassFx()
+{
+ extendObj(this, new TileObj());
+ this.name = "SmallGrassFx";
+ this.img = "smallgrassfx.png";
+}
+
+// A steel wall, cannot be broken
+function SteelWall()
+{
+ extendObj(this, new TileObj());
+ this.name = "SteelWall";
+ this.fgImg  = "steelwall.gif";
+ this.canBeHere = false;
+}
+
+// A steel wall, cannot be broken
+function SteelBg()
+{
+ extendObj(this, new TileObj());
+ this.name = "SteelWall";
+ this.img  = "steelbg.gif";
+}
+
+// A rock wall, cannot be broken
+function RockWall()
+{
+ extendObj(this, new TileObj());
+ this.name = "RockWall";
+ this.fgImg  = "rockwall.gif";
+ this.canBeHere = false;
+}
+
+// A rock wall, can be passed
+function RockBg()
+{
+ extendObj(this, new TileObj());
+ this.name = "RockBg";
+ this.img  = "rockbg.gif";
+}
+
+// A floor that only works for walking and landing
+function TopForm()
+{
+ extendObj(this, new TileObj());
+ this.name = "TopForm";
+ this.fgImg = "topform.png"
+ this.isSpaceEmpty=function(whoWantsToKnow)
+ {
+  return (whoWantsToKnow.y > rowToY(this.row)-cellHeight);
+ }
+}
+
+// A floor that only works for walking and landing with a steel background
+function TopSteel()
+{
+ extendObj(this, new TileObj());
+ this.name = "TopSteel";
+ this.fgImg = "topform.png"
+ this.img = "steelbg.gif";
+ this.isSpaceEmpty=function(whoWantsToKnow)
+ {
+  return (whoWantsToKnow.y > rowToY(this.row)-cellHeight);
+ }
+}
+
+// A floor that only works for walking and landing with a rock background
+function TopRock()
+{
+ extendObj(this, new TileObj());
+ this.name = "TopSteel";
+ this.fgImg = "topform.png"
+ this.img = "rockbg.gif";
+ this.isSpaceEmpty=function(whoWantsToKnow)
+ {
+  return (whoWantsToKnow.y > rowToY(this.row)-cellHeight);
+ }
+}
+
+// A water tile, changes gravity
+function WaterTile()
+{
+ extendObj(this, new TileObj());
+ this.name = "WaterTile";
+ this.fgImg = "water.png";
+ this.canBeHere = true;
+ this.tileType = "water";
+ this.opacity = 50;
+}
+
+// A water tile, with a rock background
+function WaterRock()
+{
+ extendObj(this, new TileObj());
+ this.name = "WaterRock";
+ this.fgImg = "water.png";
+ this.img  = "rockbg.gif";
+ this.canBeHere = true;
+ this.tileType = "water";
+ this.opacity = 50;
+}
+
+// A water tile, with a steel background
+function WaterSteel()
+{
+ extendObj(this, new TileObj());
+ this.name = "WaterSteel";
+ this.fgImg = "water.png";
+ this.img  = "steelbg.gif";
+ this.canBeHere = true;
+ this.tileType = "water";
+ this.opacity = 50;
+}
+
+// A lava tile
+function LavaTile()
+{
+ extendObj(this, new TileObj());
+ this.name = "LavaTile";
+ this.fgImg = "lava.png";
+ this.canBeHere = true;
+ this.tileType = "death";
+}
+
+
+// Fireball sawn point
+function FireBallSpawn()
+{
+ extendObj(this, new LavaTile());
+ this.name = "FireBallSpawn";
+ this.tileType = "death";
+}
+
+// Player sawn point
+function PlayerSpawnPoint()
+{
+ extendObj(this, new TileObj());
+ this.name = "PlayerSpawnPoint";
+ this.img = "start.png";
+ this.canBeHere = true;
+ this.tileType = "PlayerSpawnPoint";
+}
+
+// Level goal
+function LevelGoal()
+{
+ extendObj(this, new TileObj());
+ this.name = "LevelGoal";
+ this.fgImg = "goal.png";
+ this.canBeHere = true;
+ this.tileType = "LevelGoal";
+}
+ 
+// This fucntion allows objects to be declared in shorthand for a more visible array
+// You should also use this function's switch statement as a key for filling out the
+// stage arrays. The function x() accepts a 2 character string and returns a new tile
+function boxItem(boxID)
+{
+ switch (boxID)
+ {
+  case "  ":
+   return new BlankSpace();
+  case "SP":
+   return new PlayerSpawnPoint();
+  case "LG":
+   return new LevelGoal();
+  case "FB":
+   return new FireBallSpawn();
+  case "DW":
+   return new DemoWall();
+  case "IG":
+   return new InfoGlobe();
+  case "sd":
+   return new SandFx();
+  case "GG":
+   return new GrassFx();
+  case "gg":
+   return new SmallGrassFx();
+  case "SW":
+   return new SteelWall();
+  case " s":
+   return new SteelBg();
+  case "RW":
+   return new RockWall();
+  case " r":
+   return new RockBg();
+  case "TT":
+   return new TopForm();
+  case "Ts":
+   return new TopSteel();
+  case "Tr":
+   return new TopRock();
+  case "ww":
+   return new WaterTile();
+  case "wr":
+   return new WaterRock();
+  case "ws":
+   return new WaterSteel();
+  case "LA":
+   return new LavaTile();
+  default: 
+   return new BlankSpace();
+ }
+}
+ 
+//Returns an array for each line, parsing the stage layout shorthand
+function box(boxString){
+var boxArray = new Array(); 
+for(i = 0; i < boxString.length-2; i++){
+ if (i == 0)
+  boxArray.push(boxItem(boxString[i]+boxString[i+1]));
+ else if (boxString[i] == ":")
+  boxArray.push(boxItem(boxString[i+1]+boxString[i+2]));
+}
+return boxArray;
+}
+
+//-----------------------------------------------------------//
+// Stage layouts 
+//-----------------------------------------------------------//
+
+allStages.push( [box("  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :RW:RW"),
+                 box("  :GG:gg:GG:gg:GG:gg:GG:gg:GG:gg:GG:gg:GG:gg:GG:gg:gg:RW:RW"),
+                 box("  :RW:RW:RW:RW:RW:RW:RW:RW:RW: r:RW:RW:RW:RW:RW:RW: r:RW:RW"),
+                 box("  : r:RW: r:RW: r:RW: r:RW: r: r:RW:LA:LA:LA:LA:RW: r:RW:RW"),
+                 box("  :  : r: r: r: r:RW: r:RW: r:RW:RW:RW:LA:LA:RW:RW: r:RW:RW"),
+                 box("  :  :  :  : r:  :RW:  : r:  : r: r:RW:RW:RW:RW: r:  :RW:RW"),
+                 box("  :  :  :  : r:  :RW:  : r:  :RW: r: r: r: r: r:  :  :RW:RW"),
+                 box("  :  :  :  : r:  : r:  : r:  :RW:RW: r: r:  :  :  :  :RW:SW"),
+                 box("  :  :  :  : r:  :RW:  : r:  : r:  : r:RW:  :  :  :LG:SW:LA"),
+                 box("GG:SP:GG:  :RW:  :RW:  : r:  :RW:ww:wr:RW:  :  :  :SW:LA:LA"),
+                 box("RW:SW:RW:  :RW:  :RW:  :RW:  :RW:ww:wr:RW:  :sd:  :  :SW:LA"),
+                 box("RW:RW:RW:FB:RW:LA:RW:LA:RW:FB:RW:RW:RW:RW:FB:RW:FB:LA:RW:SW"),
+                 box("RW:RW:RW:LA:RW:LA:RW:LA:RW:LA:RW:RW:RW:RW:FB:RW:FB:LA:RW:SW")]);
+
+allStages.push( [box("RW:RW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:LA:LA:LA:LA:LA"),
+                 box("SW:RW: s: s:SW: s: s:SW:SW: s: s: s: s: s: s: s: s: s: s: s:LA:LA:LA:LA"),
+                 box("LA:SW:SP:  :SW:  :  :SW:SW:  :  :  :  :  :  :  :  :  :  :  :  :LA:LA:LA"),
+                 box("LA:LA:SW:  :SW:  :  : s: s:  :  :  :  :  :SW:  :LA:  :  :  :  :  :LA:LA"),
+                 box("LA:SW:  :  :SW:  :  : s: s:  :  :  :LA:  :Ts:  :ws:  :  :  :SW:  :  :LA"),
+                 box("SW:RW:  :  :SW:  :  :SW:SW:  :SW:  :ws:  :Ts:  :ws:  :LA:  :Ts:  :LG:SW"),
+                 box("RW:RW:ww:ww:SW:ww:ww:SW:SW:  :Ts:  :ws:  :Ts:  :ws:  :ws:  :Ts:  :SW:SW"),
+                 box("RW:RW:ww:ww:SW:ww:ww:SW:SW:  :Ts:  :ws:  :SW:  :LA:  :ws:  :Ts:  :  :SW"),
+                 box("RW:RW:ww:ww:SW:ww:ww:SW:SW:  :Ts:  :LA:  :  :  :  :  :ws:  :SW:  :  :LA"),
+                 box("RW:RW:ww:ww:ws:ww:ww:SW:SW:  :SW:  :  :  :  :  :  :  :FB:  :  :  :LA:LA"),
+                 box("RW:RW:ww:ww:ws:ww:ww:SW:SW:  :  :  :  :  :  :  :  :  :  :  :  :LA:LA:LA"),
+                 box("RW:RW:ww:ww:ws:ww:ww:SW:SW:  :  :  :  :  :  :  :  :  :  :  :LA:LA:LA:LA"),
+                 box("RW:RW:LA:LA:FB:LA:LA:SW:SW:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA")]);
+
+allStages.push( [box("  :  :  :  :  :RW:RW:RW:RW:RW:  :RW"),
+                 box("  :  :  :  :  :RW:RW: r: r:gg:  :GG"),
+                 box("  :  :  :  :  :RW: r: r: r: r:LG:RW"),
+                 box("GG:gg:SP:gg:GG: r: r:RW: r:RW:SW:RW"),
+                 box("RW:RW: s:RW:RW: r: r: r: r: r:RW:RW"),
+                 box("RW:RW: r:RW:RW:RW: r: r:  : r: r:RW"),
+                 box("RW: r: r: r: r: r: r:  :  : r: r:RW"),
+                 box("RW:  :  :  :  :RW: r:  :  :GG: r:RW"),
+                 box("RW:gg:  :  :  :RW:RW:  :  :RW: r:RW"),
+                 box("RW: r:  :  :  : r: r:gg:  : r: r:RW"),
+                 box("RW: r:  :  :  :RW: r: r:  :RW:RW:RW"),
+                 box("RW: r:gg:  :  :SW:SW:SW:  :SW:SW:SW"),
+                 box("RW: r: r:  :  :SW: s: s:  : s: s:SW"),
+                 box("RW: r: r:  :  :SW: s:SW:  :SW: s:SW"),
+                 box("RW:wr:wr:ww:ww:SW:ws:SW:  :SW:Ts:SW"),
+                 box("RW:wr:wr:ww:ww:SW:ws:SW:  :SW: s:SW"),
+                 box("RW:wr:wr:ww:ww:ws:ws:SW:  :SW:Ts:SW"),
+                 box("RW:RW:wr:wr:ww:SW:ws:SW:  : s: s:SW"),
+                 box("RW:RW:LA:LA:LA:SW:LA:SW:LA:SW:LA:SW"),
+                 box("LA:LA:LA:FB:LA:LA:FB:LA:FB:LA:LA:LA")]);
+
+allStages.push( [box("LA:LA:RW: r:  :  :  :  :  :  :  :  :SW:LA:SW:LA:SW:LA:SW:LA:SW:LA:SW:LA:SW"),
+                 box("LA:RW: r:  :  :  :  :  :  :  :  :  :ws:ws:ws:ws:ws:ws:ws:ws:ws:ws:ws:ws:SW"),
+                 box("RW: r:  :  :  :  :  :  :  :  :  :  :ww:ww:ww:ww:ww:ww:ww:ww:ww:ww:ww:ws:SW"),
+                 box("RW:  :  :  :SP:gg:  :  :  :gg:LG:  :  :  :  :  :  :  :  :  :  :  :ww:ws:SW"),
+                 box("RW:ww:ww:ww:RW:RW:LA:LA:LA:RW:RW:  :  :  :  :  :  :  :  :  :  :  :ww:ws:SW"),
+                 box("RW:ww:ww:ww:RW: r:RW:FB:RW: r:  :  :  :  :  :FB:  :FB:  :FB:  :FB:ww:FB:SW"),
+                 box("RW:RW:wr:RW:RW:  : r:RW: r:  :  :  :  :  :SW:LA:SW:LA:SW:LA:SW:LA:SW:LA:SW"),
+                 box(" r:  :ww:  :  :  :  :RW:  :  :  :  :TT:  :SW:SW:SW:SW:SW:SW:SW:SW:SW:SW:SW"),
+                 box("  :  :ww:  :  :  :gg:RW:  :  :  :  :  :  :  :  : s: s: s: s: s: s: s:SW:RW"),
+                 box("  :  :ww:  :  :gg: r:RW:  :  :  :  :  :  :TT:TT:SW: s:  : s:  : s:  :RW:LA"),
+                 box("  :  :ww:  :GG: r: r:  :  :  :  :  :  :  :  :  :SW: s:Ts: s:Ts: s: s:LA:LA"),
+                 box("  :  :ww:  :RW: r:  :  :  :GG:gg:gg:gg:gg:gg:GG:SW: s:  : s:  : s:TT: r:LA"),
+                 box("ww:ww:ww:ww:RW:  :  :  :  :RW:wr:wr:wr:wr:wr:RW:SW: s: s: s: s: s: s:FB:RW"),
+                 box("ww:ww:ww:ww:RW:sd:  :  :sd:RW:wr:wr:wr:wr:wr:RW:SW: s:  : s:TT: s:  : r:LA"),
+                 box("ww:ww:ww:wr:LA:RW:sd:sd:RW:LA:FB:LA: r:LA:FB:RW:SW: s: s: s: s: s: s:FB:LA"),
+                 box("wr:wr:wr:LA:LA:LA:FB:FB:LA:LA:LA:LA: r:LA:LA:LA:RW: s:FB: s:  : s:TT: r:RW"),
+                 box("LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:FB: r:FB:LA:LA:LA:LA:LA: s: s: s: s:FB:LA"),
+                 box("LA:LA:LA:FB:LA:LA:LA:LA:LA:LA:LA:SW: s:SW:SW:SW:SW:SW:SW: s: s: s:SW:SW:LA"),
+                 box("FB:FB:FB:LA:LA:LA:LA:LA:LA:LA:LA:SW: s: s: s: s: s: s: s: s:Ts: s:SW:SW:LA"),
+                 box("LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:SW:SW:SW:SW:SW:SW:SW:SW:LA:LA:FB:SW:SW:LA"),
+                 box("LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:LA:FB:LA:FB:LA:LA:FB:LA:LA:LA:LA:LA")]);
+
+
+allStages.push( [box("LA:LA:LA:LA:LA:SW:ws:ws:ws:ws:ws"),
+                 box("LA:SW:SW:SW:SW:SW:SW:SW:SW:SW:ws"),
+                 box("LA:SW: s: s: s: s: s: s: s:SW:ws"),
+                 box("LA:SW:  :  :  : s:  :  :  :SW:ws"),
+                 box("LA:SW:  :  :  : s:  :  :  :SW:ws"),
+                 box("LA:SW:  :  :ww:SW:LA:  :  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:ww:  :  :SW:  :  :LA:SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :ww:  :SW:  :LA:  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:ww:  :  :SW:  :  :LA:SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :  :ww:SW:LA:  :  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :ww:  :SW:  :LA:  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :  :ww:SW:LA:  :  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:ww:  :  :SW:  :  :LA:SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :ww:  :SW:  :LA:  :SW:ws"),
+                 box("LA:SW:  :  :  :SW:  :  :  :SW:ws"),
+                 box("LA:SW:  :SP:  :SW:  :LG:  :SW:ws"),
+                 box("LA:SW:ww:SW:ww:SW:LA:SW:LA:SW:ws"),
+                 box("LA:SW:SW:SW:SW:SW:SW:SW:SW:SW:ws"),
+                 box("LA:LA:LA:LA:LA:SW:ws:ws:ws:ws:ws")]);
+
+allStages.push( [box("  :  :  :  :  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :  :  :  :LG"),
+                 box("  :  :  :  :  :  :  :  :  :gg:SW"),
+                 box("  :  :  :  :  :  :  :  :gg: r:RW"),
+                 box("  :  :  :  :  :  :  :gg: r:Tr:LA"),
+                 box("  :  :  :  :  :  :  : r:Tr:LA:LA"),
+                 box("  :  :  :  :  :  :gg: r: r:Tr:LA"),
+                 box("  :  :  :  :  :  : r: r:LA:Tr:RW"),
+                 box("  :  :  :  :  :gg: r: r:FB:Tr:RW"),
+                 box("  :  :  :  :  : r:LA: r:Tr: r:LA"),
+                 box("  :  :  :  :gg:RW:FB:RW: r:RW:LA"),
+                 box("  :  :  :  : r: r:Tr:LA: r: r:LA"),
+                 box("  :  :  :  : r:RW:Tr:Tr:LA:RW:RW"),
+                 box("  :  :  :GG: r:LA:LA:Tr:LA:LA:LA"),
+                 box("  :  :  :RW: r:LA:RW:Tr:Tr:RW:LA"),
+                 box("  :  :  :Tr:FB:LA:LA:LA:Tr: r:LA"),
+                 box("  :  :GG: r:Tr:Tr:Tr:Tr: r:RW:RW"),
+                 box("  :  :RW: r: r: r: r: r: r:RW:LA"),
+                 box("  :GG:LA: r: r: r: r:RW: r:LA:LA"),
+                 box("  :RW:LA: r:LA:RW: r:LA: r:LA:RW"),
+                 box("gg: r:LA:FB:LA: r: r:LA:FB:LA:LA"),
+                 box(" r:RW:LA:RW:RW: r: r:Tr:RW:RW:LA"),
+                 box(" r: r:Tr: r: r: r: r:RW:RW:RW:LA"),
+                 box("SW:SW:SW:SW:TT:TT:TT:SW:SW:SW:SW"),
+                 box("LA:LA:LA:LA:SW:SP:SW:ws:ws:ws:ws"),
+                 box("LA:LA:LA:LA:LA:SW:ws:ws:ws:ws:ws"),
+                 box("LA:LA:LA:LA:LA:SW:ws:ws:ws:ws:ws")]);
+
+allStages.push( [box("  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :sd:  :  :  :sd:  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :  :RW:FB: r:FB:RW:  :  :  :  :  :  :  "),
+                 box("  :  :  :  :  :  :GG:RW:LA: r:LA:RW:GG:  :  :  :  :  :  "),
+                 box("  :  :SP:  :  :gg:RW:LA:FB: r:FB:LA:RW:gg:  :  :LG:  :  "),
+                 box("  :  :SW:  :  :RW:LA:LA:RW: r:RW:LA:LA:RW:ww:ww:SW:ww:ww"),
+                 box("LA:LA:RW:LA:FB:LA:LA:RW:RW: r:RW:LA:LA:LA:RW:wr:RW:RW:RW"),
+                 box("FB:RW:RW:RW:RW:RW:RW:RW:RW: r:RW:LA:LA:LA:LA:wr:wr:LA:RW"),
+                 box("LA:RW: r: r: r: r: r: r: r: r:RW:LA:LA:LA:LA:FB:wr:LA:RW"),
+                 box("LA:RW:wr:RW:RW:RW:RW:RW:RW:RW:LA:LA:LA:LA:LA:LA:wr:LA:LA"),
+                 box("LA:LA:wr:RW:FB:LA:LA:LA:FB:LA:LA:LA:RW:LA:LA:LA:wr:wr:RW"),
+                 box("RW:LA:wr:RW:LA:FB:LA:FB:LA:RW:RW:LA:LA:LA:LA:LA:LA:wr:RW"),
+                 box("RW:LA:wr:RW:LA:LA:LA:RW:wr:wr:wr:wr:wr:RW:LA:LA:FB:wr:RW"),
+                 box("RW:RW:wr:LA:LA:LA:RW:wr:wr:wr:wr:wr:wr:wr:LA:LA:RW:wr:RW"),
+                 box("RW:LA:wr:wr:LA:LA:wr:wr:wr:wr:wr:wr:wr:wr:LA:LA:LA:wr:RW"),
+                 box("RW:LA:LA:wr:LA:LA:wr:wr:wr:LA:FB:LA:wr:wr:wr:LA:wr:wr:RW"),
+                 box("RW:RW:LA:wr:LA:RW:wr:wr:FB:LA:LA:LA:LA:wr:wr:LA:wr:wr:LA"),
+                 box("RW:LA:wr:wr:LA:LA:wr:wr:wr:LA:LA:LA:LA:wr:wr:RW:wr:wr:LA"),
+                 box("RW:LA:wr:LA:LA:FB:wr:wr:wr:wr:LA:LA:LA:wr:wr:LA:wr:LA:LA"),
+                 box("RW:LA:wr:wr:LA:LA:LA:wr:wr:wr:wr:LA:LA:LA:wr:LA:wr:FB:RW"),
+                 box("RW:LA:LA:wr:LA:LA:FB:RW:LA:wr:wr:LA:LA:LA:wr:LA:wr:LA:LA"),
+                 box("RW:LA:LA:wr:RW:LA:LA:LA:FB:ws:ws:LA:LA:LA:wr:wr:wr:RW:LA"),
+                 box("RW:LA:wr:wr:LA:LA:LA:LA:SW:  :  :SW:LA:LA:wr:wr:wr:LA:LA"),
+                 box("RW:LA:wr:LA:LA:LA:LA:SW:  :ww:ww:  :SW:LA:LA:wr:wr:LA:RW"),
+                 box("RW:RW:wr:LA:LA:LA:RW:SW:  :ww:ww:  :SW:RW:LA:FB:wr:LA:RW"),
+                 box("RW:RW:wr:wr:LA:wr:wr:wr:SW:  :  :SW:RW:RW:RW:LA:wr:LA:RW"),
+                 box("SW:RW:RW:wr:wr:wr:wr:wr:RW:Ts:TT:RW:RW:RW:RW:LA:wr:SW:SW"),
+                 box("RW:SW:RW:wr:wr:SW:SW:wr:wr:TT:Ts:RW:RW:SW:SW:RW:wr:SW:SW"),
+                 box("SW:RW:SW:wr:wr:SW:SW:RW:RW:Ts:TT:RW:RW:SW:SW:wr:wr:RW:RW"),
+                 box("RW:SW:RW:RW:wr:wr:RW:RW:RW:TT:Ts:RW:RW:RW:wr:  :  :wr:RW"),
+                 box("SW:RW:SW:RW:RW:RW:RW:RW:RW:Ts:TT:RW:SW:SW:wr:  :  :wr:RW"),
+                 box("RW:SW:RW:SW:RW:SW:RW:SW:RW:TT:Ts:RW:SW:SW:RW:wr:wr:SW:SW"),
+                 box("SW:RW:SW:RW:SW:RW:SW:RW:RW:Ts:TT:RW:RW:RW:RW:RW:RW:SW:SW"),
+                 box("RW:SW:RW:SW:RW:SW:RW:SW:RW:TT:Ts:RW:RW:RW:SW:SW:RW:RW:RW")]);
+</script>
